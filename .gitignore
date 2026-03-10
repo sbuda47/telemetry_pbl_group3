@@ -2,5 +2,6 @@
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
-results/
-data/
+data/raw/
+data/processed/turdata_master_tidy.csv
+data/processed/turdata_analysis_ready.csv
