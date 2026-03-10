@@ -11,7 +11,7 @@ FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 PSD_READY_PATH = PROCESSED_DIR / "turdata_psd_ready.csv"
 
 TARGET_POLLUTANT = "NO2"
-TARGET_SENSOR = "S10"
+TARGET_SENSORS = ["S5", "S10", "S12", "S14"]
 
 # Hourly data -> 1 sample per hour
 FS = 1.0
@@ -25,20 +25,10 @@ NPERSEG = 256
 NOVERLAP = 128
 
 
-def load_target_signal() -> pd.DataFrame:
-    df = pd.read_csv(PSD_READY_PATH, low_memory=False)
-
-    df["dt_beg_utc"] = pd.to_datetime(df["dt_beg_utc"], errors="coerce", utc=True)
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-
-    for col in ["pollutant", "sensor_id"]:
-        df[col] = df[col].astype(str).str.strip()
-
-    df = df.dropna(subset=["dt_beg_utc", "value"]).copy()
-
+def load_signal(df: pd.DataFrame, pollutant: str, sensor: str) -> pd.DataFrame:
     signal_df = df[
-        (df["pollutant"] == TARGET_POLLUTANT) &
-        (df["sensor_id"] == TARGET_SENSOR)
+        (df["pollutant"] == pollutant) &
+        (df["sensor_id"] == sensor)
     ].copy()
 
     signal_df = signal_df.sort_values("dt_beg_utc").reset_index(drop=True)
@@ -75,22 +65,16 @@ def apply_savgol_per_segment(signal_df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(result_parts, ignore_index=True)
 
 
-def plot_psd(filtered_df: pd.DataFrame):
-    plt.figure(figsize=(12, 6))
-
+def plot_sensor_psd(ax, filtered_df: pd.DataFrame, sensor: str):
     usable_segments = 0
 
     for segment_id, seg in filtered_df.groupby("segment_id"):
         s = seg.sort_values("dt_beg_utc").copy()
-
-        # Remove missing PSD values
         s = s.dropna(subset=["value_sg"]).copy()
 
-        # Need enough data for Welch
         if len(s) < 64:
             continue
 
-        # Use smaller nperseg automatically for short segments
         seg_nperseg = min(NPERSEG, len(s))
         seg_noverlap = seg_nperseg // 2
 
@@ -106,35 +90,54 @@ def plot_psd(filtered_df: pd.DataFrame):
             scaling="density"
         )
 
-        # Convert cycles/hour -> cycles/day
         freqs_cpd = freqs * 24
-
-        plt.semilogy(freqs_cpd, pxx, label=f"Segment {segment_id}")
+        ax.semilogy(freqs_cpd, pxx, label=f"Seg {segment_id}")
         usable_segments += 1
 
-    if usable_segments == 0:
-        raise ValueError("No segment long enough for PSD analysis.")
+    ax.set_title(f"{TARGET_POLLUTANT} - {sensor}")
+    ax.set_xlabel("Frequency (cycles/day)")
+    ax.set_ylabel("PSD")
+    ax.grid(True, alpha=0.3)
 
-    plt.xlabel("Frequency (cycles/day)")
-    plt.ylabel("PSD")
-    plt.title(f"Welch PSD of Savitzky-Golay filtered signal: {TARGET_POLLUTANT} - {TARGET_SENSOR}")
-    plt.legend()
-    plt.tight_layout()
+    if usable_segments > 0:
+        ax.legend()
+    else:
+        ax.text(0.5, 0.5, "No usable segment",
+                ha="center", va="center", transform=ax.transAxes)
 
-    out_path = FIGURES_DIR / f"psd_{TARGET_POLLUTANT}_{TARGET_SENSOR}_cpd.png"
+
+if __name__ == "__main__":
+    df = pd.read_csv(PSD_READY_PATH, low_memory=False)
+
+    df["dt_beg_utc"] = pd.to_datetime(df["dt_beg_utc"], errors="coerce", utc=True)
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+
+    for col in ["pollutant", "sensor_id"]:
+        df[col] = df[col].astype(str).str.strip()
+
+    df = df.dropna(subset=["dt_beg_utc", "value"]).copy()
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    for ax, sensor in zip(axes, TARGET_SENSORS):
+        signal_df = load_signal(df, TARGET_POLLUTANT, sensor)
+
+        if signal_df.empty:
+            ax.text(0.5, 0.5, f"No data for {sensor}",
+                    ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(f"{TARGET_POLLUTANT} - {sensor}")
+            continue
+
+        signal_df = assign_segments(signal_df)
+        filtered_df = apply_savgol_per_segment(signal_df)
+        plot_sensor_psd(ax, filtered_df, sensor)
+
+    plt.suptitle(f"Welch PSD comparison across sensors ({TARGET_POLLUTANT}, Savitzky-Golay filtered)")
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+
+    out_path = FIGURES_DIR / f"psd_multi_sensor_{TARGET_POLLUTANT}.png"
     plt.savefig(out_path, dpi=300)
     plt.show()
 
     print(f"Saved figure: {out_path}")
-    print(f"Usable segments analysed: {usable_segments}")
-
-
-if __name__ == "__main__":
-    signal_df = load_target_signal()
-
-    if signal_df.empty:
-        raise ValueError(f"No data found for {TARGET_POLLUTANT} {TARGET_SENSOR}")
-
-    signal_df = assign_segments(signal_df)
-    filtered_df = apply_savgol_per_segment(signal_df)
-    plot_psd(filtered_df)
