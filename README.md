@@ -63,9 +63,8 @@ Feature Extraction and Monitoring
         ↓
 Alerts / Visual Outputs / Report Figures
 
----
-
 ````
+---
 ## Repository Structure
 The repository is structured as follows: 
 ```text
@@ -173,21 +172,22 @@ This separation is important because it:
    cd telemetry_pbl_group3
    ````
 2. Create a virtual environment
-   Windows
+   
+   - Windows
    ````bash
    python -m venv .venv
    .venv\Scripts\activate
    ````
-   Linux/macOs
+   - Linux/macOs
    ````bash
    python3 -m venv .venv
    source .venv/bin/activate
    ````
-3. Install dependencies
+4. Install dependencies
    ````bash
    pip install -r requirements.txt
    ````
-4. Verify installation
+5. Verify installation
    ````bash
    python --version
    pip list
@@ -222,3 +222,4 @@ To run the whole telemetry pipeline
 ````bash
 python scripts/run_pipeline.py
 ````
+
